@@ -36,7 +36,7 @@ class ObjectAnimation extends Animation {
 
 	public override function update(delta:FastFloat) {
 		if (!object.visible || object.culled || oaction == null) return;
-		
+
 		#if arm_debug
 		Animation.beginProfile();
 		#end
@@ -85,21 +85,56 @@ class ObjectAnimation extends Animation {
 	// inline function interpolateTcb():FastFloat { return 0.0; }
 
 	override function isTrackEnd(track:TTrack):Bool {
+		var length = totalFrames() - 2;
 		return speed > 0 ?
-			frameIndex >= track.frames.length - 2 :
-			frameIndex <= 0;
+		frameIndex >= length :
+		frameIndex < 0;
 	}
 
-	inline function checkFrameIndexT(frameValues:kha.arrays.Uint32Array, t:FastFloat):Bool {
+	inline function checkFrameIndexT(track:TTrack, t:FastFloat):Bool {
+		var index0 = getFrameIndex(track, frameIndex - 1);
+		var index1 = getFrameIndex(track, frameIndex + 1);
+		var length = totalFrames() - 2;
+
 		return speed > 0 ?
-			frameIndex < frameValues.length - 2 && t > frameValues[frameIndex + 1] * frameTime :
-			frameIndex > 1 && t > frameValues[frameIndex - 1] * frameTime;
+		frameIndex < length && t > (frameIndex+1) * frameTime :
+		frameIndex > 1 && t > (frameIndex-1) * frameTime;
+	}
+
+	function getFrameIndex(track:TTrack, index: Int) {
+		var j = -1;
+		var k = -1;
+		var length = track.frames.length;
+
+		for (i in 0...length) {
+			if (speed > 0) {
+				if (track.frames[i] == index) {
+					return i;
+				}
+
+				if (track.frames[i] < index) {
+					j = i;
+				}
+			} else {
+				k = length-1-i;
+
+				if (track.frames[k] == index) {
+					return k;
+				}
+
+				if (track.frames[k] < index) {
+					j = k;
+				}
+			}
+		}
+
+		return j;
 	}
 
 	@:access(iron.object.Transform)
 	function updateAnimNonSampled(anim:TAnimation, transform:Transform) {
 		if (anim == null) return;
-		
+
 		var total = anim.end * frameTime - anim.begin * frameTime;
 
 		if (anim.has_delta) {
@@ -111,16 +146,15 @@ class ObjectAnimation extends Animation {
 		}
 
 		for (track in anim.tracks) {
-
 			if (frameIndex == -1) rewind(track);
 			var sign = speed > 0 ? 1 : -1;
 
 			// End of current time range
 			var t = time + anim.begin * frameTime;
-			while (checkFrameIndexT(track.frames, t)) frameIndex += sign;
+			while (checkFrameIndexT(track, t)) frameIndex += sign;
 
 			// No data for this track at current time
-			if (frameIndex >= track.frames.length) continue;
+			if (frameIndex >= totalFrames()) continue;
 
 			// End of track
 			if (time > total) {
@@ -129,21 +163,24 @@ class ObjectAnimation extends Animation {
 				return;
 			}
 
-			var ti = frameIndex;
+			var ti  = getFrameIndex(track, frameIndex);
+			var tii = ti + sign;
+
 			var t1 = track.frames[ti] * frameTime;
-			var t2 = track.frames[ti + sign] * frameTime;
+			var t2 = track.frames[tii] * frameTime;
 			var v1 = track.values[ti];
-			var v2 = track.values[ti + sign];
+			var v2 = track.values[tii];
 			var v = 0.0;
+
 			switch (track.curve) {
 			case "linear": {
 				v = interpolateLinear(t, t1, t2, v1, v2);
 			}
 			case "bezier": {
 				var c1 = track.frames_control_plus[ti] * frameTime;
-				var c2 = track.frames_control_minus[ti + sign] * frameTime;
+				var c2 = track.frames_control_minus[tii] * frameTime;
 				var p1 = track.values_control_plus[ti];
-				var p2 = track.values_control_minus[ti + sign];
+				var p2 = track.values_control_minus[tii];
 				v = interpolateBezier(t, t1, t2, v1, v2, c1, c2, p1, p2);
 			}
 			// case "tcb": v = interpolateTcb();
@@ -173,8 +210,12 @@ class ObjectAnimation extends Animation {
 		}
 	}
 
-	public override function totalFrames():Int { 
+	public override function totalFrames():Int {
 		if (oaction == null || oaction.anim == null) return 0;
 		return oaction.anim.end - oaction.anim.begin;
+	}
+
+	inline function debug(a:Array<Dynamic>) {
+		trace(a.join(' '));
 	}
 }
